@@ -4,20 +4,22 @@
 
 To run the complete WiseUp application (Frontend + Backend + Database):
 
-1. **Move docker-compose.yml**: Take the `docker-compose.yml` file from this backend folder and move it to the parent directory (where both `Frontend/` and `Backend/` folders are located).
+1. **Move docker-compose.yml**: Take the `docker-compose.yml` file from this backend folder and move it to the parent directory (where both `Frontend/` and `Backend/` folders are located). **YOU need to adjust the MONGODB_URI in docker-compose.yml** that is a bug currently.
 
-2. **Start the application**: In the parent directory, run:
+2. 
+
+3. **Start the application**: In the parent directory, run:
 
    ```bash
    docker compose up -d
    ```
 
-3. **Access the application**:
+4. **Access the application**:
 
    - Frontend: http://localhost:5173
    - Backend API: http://localhost:4000
 
-4. **Stop the application**:
+5. **Stop the application**:
    ```bash
    docker compose down
    ```
