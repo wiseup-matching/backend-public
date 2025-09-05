@@ -1,0 +1,2213 @@
+openapi: 3.0.3
+info:
+  title: Retirement‐Matching API
+  description: |
+    REST endpoints for user auth (via magic‐link), retirees, career elements,
+    reference data, startups, job postings, matching, conversations, and hire invites.
+    Uses a JWT set in a cookie.
+  version: 1.0.0
+servers:
+  - url: 'https://api.example.com'
+    description: Production server
+  - url: 'http://localhost:4000'
+    description: Local development
+security:
+  - JwtCookieAuth: []
+paths:
+  /login:
+    post:
+      summary: Log in by email (immediately returns JWT cookie)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+        required: true
+      responses:
+        '200':
+          description: Logged in successfully (JWT cookie set)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/inline_response_200'
+        '400':
+          description: Invalid email format
+        '404':
+          description: Email not found
+  /register:
+    post:
+      summary: Register by email (create user and return JWT cookie)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+        required: true
+      responses:
+        '201':
+          description: Registered successfully (JWT cookie set)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/inline_response_201'
+        '400':
+          description: Invalid email format or email already exists
+        '409':
+          description: Email already exists
+  /verify-magiclink:
+    get:
+      summary: Verify magic link token and authenticate user
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Magic link token
+        - name: userType
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [retiree, startup, auto]
+          description: User type for registration or auto for existing users
+        - name: strict
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: Whether to enforce strict user type checking
+        - name: redirect
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Redirect URL after successful verification
+      responses:
+        '302':
+          description: Redirect to frontend with JWT cookie set (production)
+        '200':
+          description: Authentication successful (development)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  user:
+                    $ref: '#/components/schemas/User'
+        '400':
+          description: Invalid token or userType
+        '401':
+          description: Token expired or invalid
+  /logout:
+    post:
+      summary: Log out user (clear all cookies)
+      description: "Logs out the user by clearing all cookies. Always returns { success: true }."
+      responses:
+        '200':
+          description: Logged out successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+  /retiree:
+    get:
+      summary: Get all retirees
+      responses:
+        '200':
+          description: List of retirees
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Retiree'
+      security:
+        - JwtCookieAuth: []
+  '/retiree/{retireeId}':
+    get:
+      summary: Get a retiree by ID
+      parameters:
+        - name: retireeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Retiree object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Retiree'
+        '404':
+          description: Not found
+      security:
+        - JwtCookieAuth: []
+    put:
+      summary: Update a retiree
+      parameters:
+        - name: retireeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        description: Partial retiree fields to update
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RetireeUpdate'
+        required: true
+      responses:
+        '200':
+          description: Updated retiree
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Retiree'
+        '400':
+          description: Validation error
+        '404':
+          description: Not found
+      security:
+        - JwtCookieAuth: []
+    delete:
+      summary: Delete a retiree
+      parameters:
+        - name: retireeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Deleted successfully
+        '404':
+          description: Not found
+      security:
+        - JwtCookieAuth: []
+  '/retiree/{retireeId}/career-element':
+    get:
+      summary: Get all career elements for a retiree
+      parameters:
+        - name: retireeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Array of CareerElement (education or job)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CareerElement'
+        '404':
+          description: Retiree not found
+      security:
+        - JwtCookieAuth: []
+    post:
+      summary: Create a career element (must supply kind (‐education‐ or ‐job‐))
+      parameters:
+        - name: retireeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CareerElementCreate'
+        required: true
+      responses:
+        '201':
+          description: 'Career element created (returns the full object, including `id`)'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CareerElement'
+        '400':
+          description: Validation error (missing or conflicting fields)
+        '404':
+          description: Retiree not found
+      security:
+        - JwtCookieAuth: []
+  '/retiree/{retireeId}/career-element/{careerElementId}':
+    get:
+      summary: Get a specific career element by ID (returns education or job subtype)
+      parameters:
+        - name: retireeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: careerElementId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Returns a CareerElement (education or job subtype)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CareerElement'
+        '404':
+          description: Not found
+      security:
+        - JwtCookieAuth: []
+    put:
+      summary: Update a specific career element (must include kind ‘education’ or ‘job’)
+      parameters:
+        - name: retireeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: careerElementId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CareerElementUpdate'
+        required: true
+      responses:
+        '200':
+          description: Returns the updated CareerElement
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CareerElement'
+        '400':
+          description: Validation error
+        '404':
+          description: Not found
+      security:
+        - JwtCookieAuth: []
+    delete:
+      summary: Delete a specific career element
+      parameters:
+        - name: retireeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: careerElementId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Deleted successfully
+        '404':
+          description: Not found
+      security:
+        - JwtCookieAuth: []
+  /funding-status:
+    get:
+      summary: List all funding statuses
+      responses:
+        '200':
+          description: Array of funding statuses
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FundingStatus'
+      security:
+        - JwtCookieAuth: []
+  '/funding-status/{fundingStatusId}':
+    get:
+      summary: Get a funding status by ID
+      parameters:
+        - name: fundingStatusId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Funding status object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FundingStatus'
+        '404':
+          description: Not found
+      security:
+        - JwtCookieAuth: []
+  /degree:
+    get:
+      summary: List all degrees
+      responses:
+        '200':
+          description: Array of degrees
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Degree'
+      security:
+        - JwtCookieAuth: []
+  '/degree/{degreeId}':
+    get:
+      summary: Get degree by ID
+      parameters:
+        - name: degreeId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Degree object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Degree'
+        '404':
+          description: Not found
+      security:
+        - JwtCookieAuth: []
+  /position:
+    get:
+      summary: List all job positions
+      responses:
+        '200':
+          description: Array of job positions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Position'
+      security:
+        - JwtCookieAuth: []
+  '/position/{positionId}':
+    get:
+      summary: Get a job position by ID
+      parameters:
+        - name: positionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Job position object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Position'
+        '404':
+          description: Not found
+      security:
+        - JwtCookieAuth: []
+  /skill:
+    get:
+      summary: List all skills
+      responses:
+        '200':
+          description: Array of skills
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Skill'
+      security:
+        - JwtCookieAuth: []
+  '/skill/{skillId}':
+    get:
+      summary: Get a skill by ID
+      parameters:
+        - name: skillId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Skill object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Skill'
+        '404':
+          description: Not found
+      security:
+        - JwtCookieAuth: []
+  /expertise-area:
+    get:
+      summary: List all expertise areas
+      responses:
+        '200':
+          description: Array of expertise areas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ExpertiseArea'
+      security:
+        - JwtCookieAuth: []
+  '/expertise-area/{expertiseAreaId}':
+    get:
+      summary: Get an expertise area by ID
+      parameters:
+        - name: expertiseAreaId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Expertise area object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExpertiseArea'
+        '404':
+          description: Not found
+      security:
+        - JwtCookieAuth: []
+  /language:
+    get:
+      summary: List all languages
+      responses:
+        '200':
+          description: Array of languages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Language'
+      security:
+        - JwtCookieAuth: []
+  /language-proficiency-level:
+    get:
+      summary: List all language proficiency levels
+      responses:
+        '200':
+          description: Array of language proficiency levels
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LanguageProficiencyLevel'
+      security:
+        - JwtCookieAuth: []
+  /startup:
+    get:
+      summary: Get all startups
+      responses:
+        '200':
+          description: List of startups
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Startup'
+      security:
+        - JwtCookieAuth: []
+  '/startup/{startupId}':
+    get:
+      summary: Get a startup by ID
+      parameters:
+        - name: startupId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Startup object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Startup'
+        '404':
+          description: Not found
+      security:
+        - JwtCookieAuth: []
+    put:
+      summary: Update a startup
+      parameters:
+        - name: startupId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        description: Fields to update
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartupUpdate'
+        required: true
+      responses:
+        '200':
+          description: Updated startup
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Startup'
+        '400':
+          description: Validation error
+        '404':
+          description: Not found
+      security:
+        - JwtCookieAuth: []
+    delete:
+      summary: Delete a startup
+      parameters:
+        - name: startupId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Deleted successfully
+        '404':
+          description: Not found
+      security:
+        - JwtCookieAuth: []
+  /job-posting:
+    get:
+      summary: Get all job postings
+      responses:
+        '200':
+          description: List of job postings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/JobPosting'
+      security:
+        - JwtCookieAuth: []
+    post:
+      summary: Create a new job posting
+      requestBody:
+        description: Job posting data
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobPostingCreate'
+        required: true
+      responses:
+        '201':
+          description: Job posting created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobPosting'
+        '400':
+          description: Validation error
+      security:
+        - JwtCookieAuth: []
+  '/job-posting/{jobPostingId}':
+    get:
+      summary: Get a job posting by ID
+      parameters:
+        - name: jobPostingId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Job posting object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobPosting'
+        '404':
+          description: Not found
+      security:
+        - JwtCookieAuth: []
+    put:
+      summary: Update a job posting
+      parameters:
+        - name: jobPostingId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        description: Fields to update
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JobPostingUpdate'
+        required: true
+      responses:
+        '200':
+          description: Updated job posting
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobPosting'
+        '400':
+          description: Validation error
+        '404':
+          description: Not found
+      security:
+        - JwtCookieAuth: []
+    delete:
+      summary: Delete a job posting
+      parameters:
+        - name: jobPostingId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Deleted successfully
+        '404':
+          description: Not found
+      security:
+        - JwtCookieAuth: []
+  '/job-posting/{jobPostingId}/matches':
+    get:
+      summary: Get all matches for a job posting
+      parameters:
+        - name: jobPostingId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Array of matches
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Match'
+        '404':
+          description: Job posting not found
+      security:
+        - JwtCookieAuth: []
+  /run-matching:
+    post:
+      summary: Start a new matching process for a job posting
+      requestBody:
+        description: Matching parameters
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MatchingRunRequest'
+        required: true
+      responses:
+        '201':
+          description: Matching run created immediately
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MatchingRun'
+        '202':
+          description: 'Matching request accepted, but will be scheduled for later'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeferredResponse'
+        '400':
+          description: Validation error (e.g. missing or malformed jobPostingId)
+        '404':
+          description: Job posting not found
+      security:
+        - JwtCookieAuth: []
+  '/match/{matchId}':
+    get:
+      summary: Get a match by ID
+      parameters:
+        - name: matchId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Match details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Match'
+        '404':
+          description: Not found
+      security:
+        - JwtCookieAuth: []
+  /conversation:
+    get:
+      summary: Get all conversations
+      responses:
+        '200':
+          description: List of conversations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ConversationSummary'
+      security:
+        - JwtCookieAuth: []
+    post:
+      summary: Create a new conversation
+      requestBody:
+        description: Conversation participants
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConversationCreate'
+        required: true
+      responses:
+        '201':
+          description: Conversation created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConversationSummary'
+        '400':
+          description: Validation error
+      security:
+        - JwtCookieAuth: []
+  '/conversation/{conversationId}':
+    get:
+      summary: Get a conversation by ID
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Conversation object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Conversation'
+        '404':
+          description: Not found
+      security:
+        - JwtCookieAuth: []
+    delete:
+      summary: Delete a conversation
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Deleted successfully
+        '404':
+          description: Not found
+      security:
+        - JwtCookieAuth: []
+  '/conversation/{conversationId}/read':
+    parameters:
+      - schema:
+          type: string
+        name: conversationId
+        in: path
+        required: true
+    post:
+      summary: Mark conversation as read
+      tags: []
+      responses:
+        '200':
+          description: OK
+          content: {}
+      operationId: post-conversation-conversationId-read
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {}
+  '/conversation/{conversationId}/message':
+    post:
+      summary: Send a new message in a conversation
+      parameters:
+        - name: conversationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        description: Message content
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MessageCreate'
+        required: true
+      responses:
+        '201':
+          description: Message sent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Message'
+        '400':
+          description: Validation error
+        '404':
+          description: Conversation not found
+      security:
+        - JwtCookieAuth: []
+  /cooperation:
+    get:
+      summary: Get all cooperations
+      responses:
+        '200':
+          description: List of cooperations
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Cooperation'
+      security:
+        - JwtCookieAuth: []
+    post:
+      summary: Create a new cooperation
+      requestBody:
+        description: Cooperation data
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CooperationCreate'
+        required: true
+      responses:
+        '201':
+          description: Cooperation created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cooperation'
+        '400':
+          description: Validation error
+      security:
+        - JwtCookieAuth: []
+  '/cooperation/{cooperationId}':
+    get:
+      summary: Get a cooperation by ID
+      parameters:
+        - name: cooperationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Cooperation object
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cooperation'
+        '404':
+          description: Not found
+      security:
+        - JwtCookieAuth: []
+    put:
+      summary: 'Update a cooperation (e.g., change status)'
+      parameters:
+        - name: cooperationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CooperationUpdate'
+        required: true
+      responses:
+        '200':
+          description: Cooperation updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Cooperation'
+        '400':
+          description: Validation error
+        '404':
+          description: Not found
+      security:
+        - JwtCookieAuth: []
+    delete:
+      summary: Delete a cooperation
+      parameters:
+        - name: cooperationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Deleted successfully
+        '404':
+          description: Not found
+      security:
+        - JwtCookieAuth: []
+  /image/upload:
+    post:
+      summary: Upload an image
+      operationId: uploadImage
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: The image file to upload.
+      responses:
+        '200':
+          description: Successful upload
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  url:
+                    type: string
+                    example: 'http://your-minio-endpoint/your-bucket/your-image.jpg'
+                    description: The URL of the uploaded image.
+        '400':
+          description: 'Bad request (e.g., no file provided)'
+        '500':
+          description: Internal server error
+components:
+  schemas:
+    LoginRequest:
+      required:
+        - email
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+    RegisterRequest:
+      required:
+        - email
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+    User:
+      type: object
+      required:
+        - _id
+        - email
+        - nameLast
+        - nameFirst
+      properties:
+        _id:
+          type: string
+          description: Unique identifier for any user (retiree or startup).
+          format: uuid
+        userType:
+          x-stoplight:
+            id: xn0mj8gqsyg6a
+          enum:
+            - Retiree
+            - Startup
+        email:
+          type: string
+          description: Must be unique; used for magic‐link login.
+          format: email
+        passwordHash:
+          type: string
+          description: '(Optional) Stored hash if you ever add password auth. For now, not used.'
+          nullable: true
+        nameLast:
+          type: string
+          description: Last name of the retiree/startup user.
+        nameFirst:
+          type: string
+          description: First name of the retiree/startup user.
+        profilePicture:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          description: Date and time when the user was created.
+          format: date-time
+        notifications:
+          type: array
+          x-stoplight:
+            id: djl70mwpr4wm7
+          items:
+            $ref: '#/components/schemas/Notification'
+    UserPublicSummary:
+      type: object
+      required:
+        - _id
+        - nameLast
+        - nameFirst
+      properties:
+        _id:
+          type: string
+          description: Unique identifier for any user (retiree or startup).
+          format: uuid
+        userType:
+          x-stoplight:
+            id: iz7u7ghhs040m
+          enum:
+            - Retiree
+            - Startup
+        nameLast:
+          type: string
+          description: Last name of the retiree/startup user.
+        nameFirst:
+          type: string
+          description: First name of the retiree/startup user.
+        profilePicture:
+          type: string
+          nullable: true
+        shortDescription:
+          type: string
+          x-stoplight:
+            id: 9bq5e0krx24bb
+    Retiree:
+      allOf:
+        - $ref: '#/components/schemas/User'
+        - required:
+            - hasCompletedTutorial
+            - status
+          type: object
+          properties:
+            isObscured:
+              type: boolean
+              readOnly: true
+              description: Whether the retiree data should be obscured when viewed by a startup that has no connection with this retiree. Default is true.
+              default: true
+            aboutMe:
+              type: string
+              description: A short bio or ‐About me‐ text.
+              nullable: true
+            birthday:
+              type: string
+              description: Date of birth.
+              format: date
+              nullable: true
+            retiredSince:
+              type: string
+              description: Date when the retiree first retired.
+              format: date
+              nullable: true
+            expectedHourlySalaryEUR:
+              type: number
+              description: Desired hourly salary in EUR.
+              format: float
+              nullable: true
+            desiredWorkHoursPerWeek:
+              type: number
+              description: Desired number of work hours per week.
+              format: float
+              nullable: true
+            addressStreet:
+              type: string
+              description: Street address.
+              nullable: true
+            addressZip:
+              type: string
+              description: ZIP/postal code.
+              nullable: true
+            addressCity:
+              type: string
+              description: City.
+              nullable: true
+            addressCountry:
+              type: string
+              description: Country.
+              nullable: true
+            hasCompletedTutorial:
+              type: boolean
+              description: True if the retiree has finished the onboarding tutorial.
+            status:
+              type: string
+              description: Current status the retiree on the platform.
+              enum:
+                - available
+                - atcapacity
+            skills:
+              type: array
+              description: List of skills (max 10).
+              items:
+                type: string
+                format: uuid
+            expertiseAreas:
+              type: array
+              description: List of expertise areas (max 5).
+              items:
+                type: string
+                format: uuid
+            languageProficiencies:
+              type: array
+              description: List of language proficiencies.
+              items:
+                $ref: '#/components/schemas/LanguageProficiency'
+            careerElements:
+              type: array
+              description: List of career elements (education and job history).
+              items:
+                $ref: '#/components/schemas/CareerElement'
+          description: '‐Retiree‐ profile, extends User.'
+    RetireeUpdate:
+      allOf:
+        - $ref: '#/components/schemas/User'
+          required: []
+        - type: object
+          description: '‐Retiree‐ profile, extends User.'
+          properties:
+            aboutMe:
+              type: string
+              description: A short bio or ‐About me‐ text.
+              nullable: true
+            birthday:
+              type: string
+              description: Date of birth.
+              format: date
+              nullable: true
+            retiredSince:
+              type: string
+              description: Date when the retiree first retired.
+              format: date
+              nullable: true
+            expectedHourlySalaryEUR:
+              type: number
+              description: Desired hourly salary in EUR.
+              format: float
+              nullable: true
+            desiredWorkHoursPerWeek:
+              type: number
+              description: Desired number of work hours per week.
+              format: float
+              nullable: true
+            addressStreet:
+              type: string
+              description: Street address.
+              nullable: true
+            addressZip:
+              type: string
+              description: ZIP/postal code.
+              nullable: true
+            addressCity:
+              type: string
+              description: City.
+              nullable: true
+            addressCountry:
+              type: string
+              description: Country.
+              nullable: true
+            hasCompletedTutorial:
+              type: boolean
+              description: True if the retiree has finished the onboarding tutorial.
+            status:
+              type: string
+              description: Current status the retiree on the platform.
+              enum:
+                - available
+                - atcapacity
+            skills:
+              type: array
+              description: List of skills (max 10).
+              items:
+                type: string
+                format: uuid
+            expertiseAreas:
+              type: array
+              description: List of expertise areas (max 5).
+              items:
+                type: string
+                format: uuid
+            languageProficiencies:
+              type: array
+              description: List of language proficiencies.
+              items:
+                $ref: '#/components/schemas/LanguageProficiency'
+            careerElements:
+              type: array
+              description: List of career elements (education and job history).
+              items:
+                $ref: '#/components/schemas/CareerElement'
+    Startup:
+      allOf:
+        - $ref: '#/components/schemas/User'
+        - required:
+            - title
+          type: object
+          properties:
+            title:
+              type: string
+              description: The official name of the startup.
+            aboutUs:
+              type: string
+              description: A description of the startup (‐About us‐).
+            contactPersonNameLast:
+              type: string
+              description: Last Name of the main contact person.
+            contactPersonNameFirst:
+              type: string
+              description: First Name of the main contact person.
+            contactPersonPicture:
+              type: string
+              description: URL to the contact person's picture.
+              nullable: true
+            industry:
+              type: string
+              description: 'Industry or sector (e.g., ‐FinTech‐, ‐HealthTech‐).'
+            addressCity:
+              type: string
+              description: City.
+              nullable: true
+            addressCountry:
+              type: string
+              description: Country.
+              nullable: true
+            fundingStatus:
+              type: string
+              format: uuid
+            fulltimeEmployeesNum:
+              type: integer
+              description: Number of full‐time employees.
+            foundingYear:
+              type: integer
+              description: Year the startup was founded.
+            revenuePerYearEUR:
+              type: number
+              description: Annual revenue in EUR.
+              format: float
+            imprintUrl:
+              type: string
+              description: Link to the legally required imprint page (if applicable).
+              format: uri
+            websiteUrl:
+              type: string
+              description: Public website URL.
+              format: uri
+            logoUrl:
+              type: string
+              description: URL to the startup’s logo.
+              nullable: true
+            stripeCustomerId:
+              type: string
+              description: Stripe Customer ID.
+              nullable: true
+            stripePriceId:
+              type: string
+              description: Stripe Price ID.
+              nullable: true
+            stripeSubscriptionExpiryDate:
+              type: string
+              description: When the Stripe subscription runs out.
+              format: date
+              nullable: true
+            wiseUpSubscriptionTier:
+              type: string
+              description: Current WiseUp subscription tier.
+              nullable: false
+              enum:
+                - free
+                - silver
+                - gold
+              default: free
+            monthlyConnectionBalance:
+              type: number
+              description: Balance of ‐connections‐/credits the startup has on a monthly basis. Gets reset every month.
+              format: int32
+            permanentConnectionBalance:
+              type: number
+              description: Balance of ‐connections‐/credits the startup has on a permanent basis. Does not reset. only available as extension to the gold tier.
+              format: int32
+            jobPostings:
+              type: array
+              description: List of job postings for this startup.
+              items:
+                type: string
+                format: uuid
+          description: '‐Startup‐ profile, extends User.'
+    StartupUpdate:
+      allOf:
+        - $ref: '#/components/schemas/User'
+        - type: object
+          description: '‐Startup‐ profile, extends User.'
+          properties:
+            title:
+              type: string
+            aboutUs:
+              type: string
+            contactPersonNameLast:
+              type: string
+              description: Last Name of the main contact person.
+            contactPersonNameFirst:
+              type: string
+              description: First Name of the main contact person.
+            contactPersonPicture:
+              type: string
+              nullable: true
+            industry:
+              type: string
+            addressCity:
+              type: string
+              description: City.
+              nullable: true
+            addressCountry:
+              type: string
+              description: Country.
+              nullable: true
+            fundingStatus:
+              type: string
+              format: uuid
+            fulltimeEmployeesNum:
+              type: integer
+            foundingYear:
+              type: integer
+            revenuePerYearEUR:
+              type: number
+              format: float
+            imprintUrl:
+              type: string
+              format: uri
+            websiteUrl:
+              type: string
+              format: uri
+            logoUrl:
+              type: string
+              nullable: true
+            jobPostings:
+              type: array
+              description: List of job postings for this startup.
+              items:
+                type: string
+                format: uuid
+    CareerElement:
+      required:
+        - _id
+        - fromDate
+        - kind
+        - title
+      type: object
+      properties:
+        _id:
+          type: string
+          description: Unique ID of this career element (education or job).
+          format: uuid
+        kind:
+          type: string
+          description: The type of career element (education or job).
+          enum:
+            - education
+            - job
+        title:
+          type: string
+          description: The position or degree name (e.g. ‐Software Engineer‐ or ‐B.Sc. in Economics‐).
+        fromDate:
+          type: string
+          description: Start date (e.g. matriculation date or job start).
+          format: date
+          nullable: true
+        untilDate:
+          type: string
+          description: 'End date (e.g. graduation date or job end); if omitted, it’s ongoing.'
+          format: date
+          nullable: true
+        description:
+          type: string
+          description: Free‐form description of responsibilities or achievements.
+          nullable: true
+        organizationName:
+          type: string
+          description: Name of the institution or company.
+          nullable: true
+        finalGrade:
+          type: string
+          description: Final grade or GPA (e.g. ‐3.7/4.0‐ or ‐First‐class honors‐).
+          nullable: true
+        degree:
+          type: string
+          format: uuid
+        position:
+          type: string
+          format: uuid
+    CareerElementCreate:
+      required:
+        - fromDate
+        - kind
+        - title
+      type: object
+      properties:
+        kind:
+          type: string
+          description: The type of career element (education or job).
+          enum:
+            - education
+            - job
+        title:
+          type: string
+          description: The position or degree name (e.g. ‐Software Engineer‐ or ‐B.Sc. in Economics‐).
+        fromDate:
+          type: string
+          description: Start date (e.g. matriculation date or job start).
+          format: date
+          nullable: true
+        untilDate:
+          type: string
+          description: 'End date (e.g. graduation date or job end); if omitted, it’s ongoing.'
+          format: date
+          nullable: true
+        description:
+          type: string
+          description: Free‐form description of responsibilities or achievements.
+          nullable: true
+        organizationName:
+          type: string
+          description: Name of the institution or company.
+          nullable: true
+        finalGrade:
+          type: string
+          description: Final grade or GPA (e.g. ‐3.7/4.0‐ or ‐First‐class honors‐).
+          nullable: true
+        degree:
+          type: string
+          format: uuid
+        position:
+          type: string
+          format: uuid
+    CareerElementUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+          description: The position or degree name (e.g. ‐Software Engineer‐ or ‐B.Sc. in Economics‐).
+        fromDate:
+          type: string
+          description: Start date (e.g. matriculation date or job start).
+          format: date
+          nullable: true
+        untilDate:
+          type: string
+          description: 'End date (e.g. graduation date or job end); if omitted, it’s ongoing.'
+          format: date
+          nullable: true
+        description:
+          type: string
+          description: Free‐form description of responsibilities or achievements.
+          nullable: true
+        organizationName:
+          type: string
+          description: Name of the institution or company.
+          nullable: true
+        finalGrade:
+          type: string
+          description: Final grade or GPA (e.g. ‐3.7/4.0‐ or ‐First‐class honors‐).
+          nullable: true
+        degree:
+          type: string
+          format: uuid
+        position:
+          type: string
+          format: uuid
+    JobPosting:
+      type: object
+      required:
+        - _id
+        - startupId
+        - title
+      properties:
+        _id:
+          type: string
+          description: Unique identifier for this job posting.
+          format: uuid
+        startupId:
+          type: string
+          description: The Startup that owns this posting.
+          format: uuid
+        title:
+          type: string
+          description: Title of the position (e.g. ‐Backend Developer‐).
+        description:
+          type: string
+          description: Full job description / responsibilities.
+          nullable: true
+        requiredZip:
+          type: string
+          nullable: true
+          x-stoplight:
+            id: 91ctdkn6b9s14
+        requiredCity:
+          type: string
+          description: City where the job must be performed.
+          nullable: true
+        requiredCountry:
+          type: string
+          description: Country where job must be performed.
+          nullable: true
+        approxDurationWeeks:
+          type: integer
+          description: Approximate duration in weeks (if project‐based).
+          format: int32
+          nullable: true
+        approxHoursPerWeek:
+          type: number
+          description: Approximate hours per week.
+          format: float
+          nullable: true
+        approxDaysPerWeek:
+          type: number
+          description: Approx. days per week.
+          format: float
+          minimum: 1
+          maximum: 7
+          nullable: true
+        approxHourlySalaryEUR:
+          type: number
+          description: Approximate hourly wage in EUR.
+          format: float
+          nullable: true
+        desiredStartDate:
+          type: string
+          description: When they would like the retiree to start.
+          format: date
+          nullable: true
+        matchingLanguageProficiencies:
+          type: array
+          description: List of language‐proficiency requirements.
+          items:
+            $ref: '#/components/schemas/LanguageProficiency'
+        matchingExpertiseAreas:
+          type: array
+          description: Expertise areas required for this job (0..*).
+          items:
+            type: string
+            format: uuid
+        matchingSkills:
+          type: array
+          description: Skills required (0..*).
+          items:
+            type: string
+            format: uuid
+        matchingPositions:
+          type: array
+          items:
+            type: string
+            format: uuid
+        matchingDegrees:
+          type: array
+          items:
+            type: string
+            format: uuid
+        createdAt:
+          type: string
+          description: When the job posting was created.
+          format: date-time
+        subscriptionTier:
+          x-stoplight:
+            id: iv4tu7824yx42
+          enum:
+            - free
+            - silver
+            - gold
+    JobPostingCreate:
+      required:
+        - startupId
+        - title
+      type: object
+      properties:
+        title:
+          type: string
+        startupId:
+          type: string
+          format: uuid
+        description:
+          type: string
+          nullable: true
+        requiredZip:
+          type: string
+          nullable: true
+        requiredCity:
+          type: string
+          description: City where the job must be performed.
+          nullable: true
+        requiredCountry:
+          type: string
+          description: Country where job must be performed.
+          nullable: true
+        approxDurationWeeks:
+          type: integer
+          format: int32
+          nullable: true
+        approxHoursPerWeek:
+          type: number
+          format: float
+          nullable: true
+        approxDaysPerWeek:
+          type: number
+          format: float
+          minimum: 1
+          maximum: 7
+          nullable: true
+        approxHourlySalaryEUR:
+          type: number
+          format: float
+          nullable: true
+        desiredStartDate:
+          type: string
+          format: date
+          nullable: true
+        matchingLanguageProficiencies:
+          type: array
+          items:
+            $ref: '#/components/schemas/LanguageProficiency'
+        matchingExpertiseAreas:
+          type: array
+          items:
+            type: string
+            format: uuid
+        matchingSkills:
+          type: array
+          items:
+            type: string
+            format: uuid
+        matchingPositions:
+          type: array
+          items:
+            type: string
+            format: uuid
+        matchingDegrees:
+          type: array
+          items:
+            type: string
+            format: uuid
+    JobPostingUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+          nullable: true
+        requiredZip:
+          type: string
+          nullable: true
+        requiredCity:
+          type: string
+          description: City where the job must be performed.
+          nullable: true
+        requiredCountry:
+          type: string
+          description: Country where job must be performed.
+          nullable: true
+        approxDurationWeeks:
+          type: integer
+          format: int32
+          nullable: true
+        approxHoursPerWeek:
+          type: number
+          format: float
+          nullable: true
+        approxDaysPerWeek:
+          type: number
+          format: float
+          minimum: 1
+          maximum: 7
+          nullable: true
+        approxHourlySalaryEUR:
+          type: number
+          format: float
+          nullable: true
+        desiredStartDate:
+          type: string
+          format: date
+          nullable: true
+        matchingLanguageProficiencies:
+          type: array
+          items:
+            $ref: '#/components/schemas/LanguageProficiency'
+        matchingExpertiseAreas:
+          type: array
+          items:
+            type: string
+            format: uuid
+        matchingSkills:
+          type: array
+          items:
+            type: string
+            format: uuid
+        matchingPositions:
+          type: array
+          items:
+            type: string
+            format: uuid
+        matchingDegrees:
+          type: array
+          items:
+            type: string
+            format: uuid
+    FundingStatus:
+      required:
+        - _id
+        - title
+      type: object
+      properties:
+        _id:
+          type: string
+          description: Unique identifier for this funding status.
+          format: uuid
+        title:
+          type: string
+          description: 'Human‐readable name of the funding status (e.g. ‐Seed‐, ‐Series A‐).'
+    Degree:
+      required:
+        - _id
+        - title
+      type: object
+      properties:
+        _id:
+          type: string
+          description: 'Internal UUID for this degree (e.g. BSc, MSc, etc.).'
+          format: uuid
+        title:
+          type: string
+          description: The name of the degree (e.g. ‐Bachelor of Science‐).
+    Position:
+      required:
+        - _id
+        - title
+      type: object
+      properties:
+        _id:
+          type: string
+          description: Internal UUID for this job position (e.g. ‐Software Engineer‐).
+          format: uuid
+        title:
+          type: string
+          description: Human‐readable name of the position.
+    Skill:
+      required:
+        - _id
+        - name
+      type: object
+      properties:
+        _id:
+          type: string
+          description: UUID for this skill (e.g. ‐JavaScript‐).
+          format: uuid
+        name:
+          type: string
+          description: Human‐readable skill name.
+    ExpertiseArea:
+      required:
+        - _id
+        - name
+      type: object
+      properties:
+        _id:
+          type: string
+          description: UUID for this expertise area (e.g. ‐Data Science‐).
+          format: uuid
+        name:
+          type: string
+          description: Human‐readable name of the expertise area.
+    Language:
+      required:
+        - _id
+        - name
+      type: object
+      properties:
+        _id:
+          type: string
+          description: Unique identifier for this language.
+          format: uuid
+        name:
+          type: string
+    LanguageProficiencyLevel:
+      required:
+        - code
+        - _id
+      type: object
+      properties:
+        _id:
+          type: string
+          description: Unique identifier for this proficiency level.
+          format: uuid
+        code:
+          type: string
+          description: CEFR code (A1…C2)
+    LanguageProficiency:
+      required:
+        - _id
+        - languageId
+        - levelId
+      type: object
+      properties:
+        _id:
+          type: string
+          description: Unique identifier for this proficiency record.
+          format: uuid
+        languageId:
+          type: string
+          description: references **Language**
+          format: uuid
+        levelId:
+          type: string
+          description: references **LanguageProficiencyLevel**
+          format: uuid
+    Conversation:
+      type: object
+      required:
+        - _id
+        - createdAt
+        - participants
+        - messages
+      properties:
+        _id:
+          type: string
+          description: Unique identifier for this conversation.
+          format: uuid
+        createdAt:
+          type: string
+          description: When the conversation was created.
+          format: date-time
+        participants:
+          minItems: 2
+          type: array
+          description: Unique identifier for the participating retiree.
+          items:
+            $ref: '#/components/schemas/UserPublicSummary'
+        messages:
+          type: array
+          x-stoplight:
+            id: z3mxmmn6w54yd
+          items:
+            $ref: '#/components/schemas/Message'
+        jobPosting:
+          $ref: '#/components/schemas/JobPosting'
+        cooperation:
+          $ref: '#/components/schemas/Cooperation'
+    ConversationSummary:
+      type: object
+      title: ConversationSummary
+      required:
+        - _id
+        - createdAt
+        - participants
+        - unreadMessageCount
+      properties:
+        _id:
+          type: string
+          description: Unique identifier for this conversation.
+          format: uuid
+        createdAt:
+          type: string
+          description: When the conversation was created.
+          format: date-time
+        jobPosting:
+          $ref: '#/components/schemas/JobPosting'
+        participants:
+          minItems: 2
+          type: array
+          description: Unique identifier for the participating retiree.
+          items:
+            $ref: '#/components/schemas/UserPublicSummary'
+        unreadMessageCount:
+          type: integer
+          format: int32
+          description: Number of unread messages in this conversation.
+        lastMessage:
+          $ref: '#/components/schemas/Message'
+    ConversationCreate:
+      required:
+        - participantIds
+      type: object
+      properties:
+        participantIds:
+          minItems: 1
+          uniqueItems: true
+          type: array
+          items:
+            type: string
+            format: uuid
+            x-stoplight:
+              id: 0l4mxgincbese
+          x-stoplight:
+            id: 3wo3qfzqpu4eo
+        jobPostingId:
+          type: string
+          format: uuid
+    Message:
+      required:
+        - content
+        - conversationId
+        - createdAt
+        - _id
+        - read
+        - senderId
+      type: object
+      properties:
+        _id:
+          type: string
+          description: Unique identifier for this message.
+          format: uuid
+        conversationId:
+          type: string
+          description: Which Conversation this message belongs to.
+          format: uuid
+        senderId:
+          type: string
+          description: User ID of who sent it.
+          format: uuid
+        content:
+          type: string
+          description: The message text.
+        read:
+          type: boolean
+          description: True if the recipient(s) have read this message.
+        createdAt:
+          type: string
+          description: Timestamp when it was sent.
+          format: date-time
+    MessageCreate:
+      required:
+        - content
+      type: object
+      properties:
+        content:
+          type: string
+    Match:
+      required:
+        - _id
+        - jobPostingId
+        - matchingRunId
+        - retireeId
+      type: object
+      properties:
+        _id:
+          type: string
+          description: Unique ID for this match record.
+          format: uuid
+        jobPosting:
+          type: string
+          description: The job posting being matched against.
+          format: uuid
+        retiree:
+          type: string
+          description: The retiree that was matched.
+          format: uuid
+        matchingRun:
+          type: string
+          description: The matching‐run that generated this match.
+          format: uuid
+        score:
+          type: number
+          description: Calculated match score (higher = better).
+          format: float
+          nullable: true
+    MatchingRun:
+      required:
+        - createdAt
+        - _id
+      type: object
+      properties:
+        _id:
+          type: string
+          description: UUID of the newly created matching run.
+          format: uuid
+        createdAt:
+          type: string
+          description: When this matching run was actually started.
+          format: date-time
+    MatchingRunRequest:
+      type: object
+      properties:
+        jobPostingId:
+          type: string
+          description: UUID of the job posting to match against.
+          format: uuid
+    DeferredResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          description: |
+            ‐Your request was accepted, but no new run will start right now.‐
+        scheduledAt:
+          type: string
+          description: |
+            If known, when the matching run will actually run; otherwise null.
+          format: date-time
+          nullable: true
+    Cooperation:
+      required:
+        - _id
+        - createdAt
+        - jobPostingId
+        - retireeId
+        - status
+      type: object
+      properties:
+        _id:
+          type: string
+          format: uuid
+        retireeId:
+          type: string
+          format: uuid
+        jobPostingId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+            - pending
+            - accepted
+            - declined
+        createdAt:
+          type: string
+          format: date-time
+    CooperationCreate:
+      required:
+        - jobPostingId
+        - retireeId
+      type: object
+      properties:
+        retireeId:
+          type: string
+          format: uuid
+        jobPostingId:
+          type: string
+          format: uuid
+    CooperationUpdate:
+      type: object
+      properties:
+        status:
+          type: string
+          enum:
+            - pending
+            - accepted
+            - declined
+    inline_response_200:
+      type: object
+      properties:
+        message:
+          type: string
+    inline_response_201:
+      type: object
+      properties:
+        _id:
+          type: string
+          format: uuid
+    Notification:
+      title: Notification
+      type: object
+      required:
+        - _id
+        - title
+        - message
+        - actions
+        - timestamp
+      properties:
+        _id:
+          type: string
+        title:
+          type: string
+          x-stoplight:
+            id: d49j93kvvm3i3
+        message:
+          type: string
+          x-stoplight:
+            id: mxq5ow0lg3y3q
+        actions:
+          type: array
+          x-stoplight:
+            id: ali6qn5w8m0lc
+          items:
+            x-stoplight:
+              id: n3n9c4nepvlrr
+            type: object
+            required:
+              - label
+              - url
+            properties:
+              label:
+                type: string
+                x-stoplight:
+                  id: r5q0jvzmxjn3d
+              url:
+                type: string
+                x-stoplight:
+                  id: 6nb7iti38g0ke
+        timestamp:
+          type: string
+          x-stoplight:
+            id: kaes30f7rtl5r
+  securitySchemes:
+    JwtCookieAuth:
+      type: apiKey
+      name: jwt
+      in: cookie

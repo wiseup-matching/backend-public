@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "outDir": "dist",
+    "sourceMap": true,
+    "esModuleInterop": true,
+    "target": "ES2022",
+    "lib": [
+      "ES2023", // keep modern ES features…
+      "DOM" // ← add this so TypeScript knows “Request”, “Response”, “fetch”, etc.
+    ],
+
+    "module": "CommonJS",
+    "skipLibCheck": true,
+
+    /* Bundler mode */
+    "verbatimModuleSyntax": false, // ← allow constructor(public foo: T) syntax in generated runtime
+    "moduleDetection": "force",
+    "moduleResolution": "node",
+
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": false, // ← turn off “unused” errors in generated code
+    "noUnusedParameters": false, // ← turn off “unused” errors in generated code
+    "erasableSyntaxOnly": false, // ← same as verbatimModuleSyntax – allow generated class syntax
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "noImplicitAny": false // ← allow `any` in JSON‐helper functions (e.g. mapValues)
+  },
+  "include": ["./*.js", "src/**/*.ts", "test/**/*.ts"]
+}

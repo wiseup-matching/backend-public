@@ -1,0 +1,46 @@
+services:
+  mongodb:
+    image: mongo:7
+    container_name: mongodb
+    ports:
+      - '${MONGODB_PORT}:27017'
+    volumes:
+      - mongo-data:/data/db
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGODB_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGODB_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGODB_DATABASE}
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    ports:
+      - '${MINIO_API_PORT}:9000'
+      - '${MINIO_CONSOLE_PORT}:9001'
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_REGION_NAME: ${MINIO_REGION_NAME}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+
+  stripe:
+    image: stripe/stripe-cli:latest
+    container_name: stripe-listener
+    command:
+      [
+        'listen',
+        '--api-key',
+        '${STRIPE_SECRET_KEY}',
+        '--forward-to',
+        'http://host.docker.internal:${PORT}/api/stripe-webhook',
+      ]
+    environment:
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY}
+    volumes:
+      - stripe_data:/root/.stripe
+
+volumes:
+  mongo-data:
+  minio_data:
+  stripe_data:

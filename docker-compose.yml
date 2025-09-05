@@ -1,0 +1,87 @@
+services:
+  # 1) MinIO S3 compatible storage
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    restart: unless-stopped
+    env_file: ./Backend/.env
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # 2) Backend service (Express)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: backend
+    restart: unless-stopped
+    ports:
+      - '4000:4000'
+    env_file:
+      - ./backend/.env
+    environment:
+      # Override specific variables for Docker networking
+      MONGODB_URI: mongodb+srv://<username>:<password>@<cluster-url>/<database>?retryWrites=true&w=majority
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - app-network
+
+  # 3) Frontend service (React)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: frontend
+    restart: unless-stopped
+    ports:
+      - '5173:5173'
+    env_file:
+      - ./frontend/.env
+    environment:
+      BACKEND_HOST: backend
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
+  # 4) Stripe CLI for webhook listening
+  stripe:
+    image: stripe/stripe-cli:latest
+    container_name: stripe-listener
+    restart: unless-stopped
+    env_file: ./Backend/.env
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        echo 'Starting Stripe CLI webhook listener...'
+        stripe listen --api-key "$$STRIPE_SECRET_KEY" --forward-to http://backend:4000/api/stripe-webhook
+    depends_on:
+      - backend
+    networks:
+      - app-network
+    volumes:
+      - stripe_data:/root/.stripe
+
+volumes:
+  minio_data:
+  stripe_data:
+
+networks:
+  app-network:
+    driver: bridge
